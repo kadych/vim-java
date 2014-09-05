@@ -1,5 +1,5 @@
 " vim: set sw=2 sts=2 ts=2 et :
-
+"
 if exists('g:loaded_java')
   finish
 endif
@@ -11,21 +11,22 @@ else
   let g:file_separator = '/'
 endif
 
-if !exists('g:vimfiles_directory')
-  if has("win32")
-    let g:vimfiles_directory = '~/vimfiles'
-  else
-    let g:vimfiles_directory = '~/.vim'
-  endif
+if !exists('g:mustache_directory')
+  let g:mustache_directory = expand(expand('<sfile>:p:h:h').'/mustaches')
 endif
+
+let g:java_max_imports = 3
 
 let s:package_pattern = '\vpackage\s+([^;]+);'
 let s:import_pattern = '\v^import\s+(static\s+)?(\w+)(\..*);'
 let s:class_pattern = '\v^public\s+class\s+'
-let g:java_max_imports = 3
+let s:file_types = ['java', 'groovy']
 
 function! java#get_class_name()
-  let classname = substitute(expand("%:t"), '\.java$', '', '')
+  if index(s:file_types, &filetype) == -1
+    return ''
+  endif
+  let classname = expand("%:t:r")
   let linenum = search(s:package_pattern, 'n')
   if linenum == 0
     return classname
@@ -48,36 +49,76 @@ function! java#split_class_name(cannonicalClassName)
   return {'className': names[-1], 'packageName': join(names[:-2], '.')}
 endfunction
 
-function! s:get_siblings(A, L, P)
-  let filePath = expand('%:h')
-  if filePath =~# '\v<main>'
-    let altFilePath = substitute(filePath, '\v<main>', 'test', '')
-  elseif filePath =~# '\v<test>'
-    let altFilePath = substitute(filePath, '\v<test>', 'main', '')
+function! s:get_working_dir()
+  if index(s:file_types, &filetype) != -1
+    let pattern = '\v'.escape(
+          \g:file_separator.'?'
+          \.join(['src', '(main|test)', '('.join(s:file_types, '|').')'], g:file_separator)
+          \.'('.g:file_separator.'.*)?', '\')
+    return substitute(expand('%:p:h'), pattern, '', '') 
   else
-    let altFilePath = ''
+    return getcwd()
   endif
+endfunction
 
-  let list = []
-  let list = list + globpath(filePath, a:A.'*.java', 0, 1)
-  let list = list + globpath(altFilePath, a:A.'*.java', 0, 1)
+function! s:get_source_set(fileType)
+  let workingDir = s:get_working_dir()
+  let sourceSet = []
+  for item in ['src/main/'.a:fileType, 'src/test/'.a:fileType]
+    let path = expand(workingDir.'/'.item)
+    if isdirectory(path)
+      call add(sourceSet, path)
+    endif
+  endfor
+  if empty(sourceSet)
+    call add(sourceSet, '.')
+  endif
+  return sourceSet
+endfunction
+
+function! s:get_siblings(A, L, P)
+  let fileType = tolower(split(a:L, ' ')[0])
+  let sourceSet = s:get_source_set(fileType)
+
+  let suffix = '.'.fileType
+  if a:A =~# '\v\.'
+    let prefix = substitute(a:A, '\v\.', '/', 'g')
+    if prefix =~# '\v/$'
+      let prefix = prefix.'**/*'
+    else
+      let prefix = prefix.'*'
+    endif
+  else
+    let prefix = '**/'.a:A.'*'
+  endif
+  
+  let currentClassName = java#get_class_name()
+  let packageName = java#get_package_name()
+  let list = globpath(join(sourceSet, ','), prefix.suffix, 0, 1)
+
   let classes = []
   for item in list
-    let className = substitute(split(item, g:file_separator)[-1], '\.java$', '', '')
-    call add(classes, className)
+    for sourcePath in sourceSet
+      let fileName = substitute(item, '\v'.escape(sourcePath.g:file_separator, ' \-.'), '', '')
+      if item !=# fileName
+        let cannonicalClassName = substitute(
+              \substitute(fileName, '\v'.escape(g:file_separator, '\'), '.', 'g'), 
+              \'\v\.('.join(s:file_types, '|').')$', '', '')
+        if currentClassName !=# cannonicalClassName
+          let splitted = java#split_class_name(cannonicalClassName)
+          call add(classes, packageName ==# splitted.packageName ? 
+                \splitted.className : cannonicalClassName)
+        endif
+        break
+      endif
+    endfor
   endfor
 
   return classes
 endfunction
 
 function! java#render_template(scriptFile, outputFile, params)
-  if !exists('g:mustache_directory')  
-    let mustache_directory = g:vimfiles_directory.'/mustaches'
-  else
-    let mustache_directory = g:mustache_directory
-  endif
-
-  let inputFile = expand(mustache_directory.'/'.a:scriptFile)
+  let inputFile = expand(g:mustache_directory.'/'.a:scriptFile)
   execute '!vim-tools vim.tools.MustacheGenerator'.
         \' -i '.shellescape(inputFile).
         \' -o '.shellescape(a:outputFile).
@@ -85,44 +126,50 @@ function! java#render_template(scriptFile, outputFile, params)
   execute 'edit! '.a:outputFile
 endfunction
 
-function! java#template_params(cannonicalClassName)
+function! java#template_params(cannonicalClassName, fileType)
   let params = java#split_class_name(a:cannonicalClassName)
-  if params.packageName ==# '' && &filetype ==# 'java'
+  if params.packageName ==# '' && index(s:file_types, &filetype) != -1
     let params.packageName = java#get_package_name()
   endif
 
-  let params.scriptName = 'java.mustache'
+  let params.scriptName = a:fileType.'.mustache'
 
   if params.className =~# '^Test' || params.className =~# 'Test$'
-    let fileType = 'test'
+    let sourceType = 'test'
     let params.isTest = 'yes'
   else
-    let fileType = 'main'
+    let sourceType = 'main'
   endif
 
-  if &filetype ==# 'java'
-    let pattern = '\v'.escape(
-          \g:file_separator.'?'
-          \.join(['src', '(main|test)', 'java'], g:file_separator)
-          \.'('.g:file_separator.'.*)?', '\')
-    let workingDir = substitute(expand('%:p:h'), pattern, '', '') 
-  else
-    let workingDir = getcwd()
-  endif
+  let workingDir = s:get_working_dir()
 
-  let targetDir = join(['src', fileType, 'java'] + split(params.packageName, '\.'), '/')
+  let targetDir = join(['src', sourceType, a:fileType] + split(params.packageName, '\.'), '/')
   if workingDir !=# ''
     let targetDir = workingDir.'/'.targetDir
   endif
-  let params.fileName = expand(targetDir.'/'.params.className.'.java')
+  let params.fileName = expand(targetDir.'/'.params.className.'.'.a:fileType)
 
   return params
 endfunction
 
-function! java#java(cannonicalClassName)
-  let params = java#template_params(a:cannonicalClassName)
+function! s:find_window(fileName)
+  for i in range(winnr('$'))
+    if a:fileName ==# expand('#'.winbufnr(i + 1).':p')
+      return i + 1
+    endif
+  endfor
+  return -1
+endfunction
+
+function! s:open_class(fileType, cannonicalClassName)
+  let params = java#template_params(a:cannonicalClassName, a:fileType)
   if filereadable(params.fileName)
-    execute 'edit! '.params.fileName
+    let winNum = s:find_window(params.fileName)
+    if winNum != -1
+      execute winNum.'wincmd w'
+    else
+      execute 'edit! '.params.fileName
+    endif
   else
     if exists('g:user')
       let params.user = g:user
@@ -131,8 +178,16 @@ function! java#java(cannonicalClassName)
   endif
 endfunction
 
+function! java#java(cannonicalClassName)
+  call s:open_class('java', a:cannonicalClassName)
+endfunction
+
+function! java#groovy(cannonicalClassName)
+  call s:open_class('groovy', a:cannonicalClassName)
+endfunction
+
 function! java#toggle()
-  if &filetype !=# 'java'
+  if index(s:file_types, &filetype) == -1
     return
   endif
   let className = java#get_class_name()
@@ -140,8 +195,8 @@ function! java#toggle()
   if filePath =~# '\v<main>'
     let newClassName = substitute(className, '$', 'Test', '')
     let altClassName = substitute(className, '\v([^\.]+)$', 'Test\1', '')
-    let newFilePath = java#template_params(newClassName).fileName
-    let altFilePath = java#template_params(altClassName).fileName
+    let newFilePath = java#template_params(newClassName, &filetype).fileName
+    let altFilePath = java#template_params(altClassName, &filetype).fileName
     if filereadable(altFilePath)
       execute 'edit! '.altFilePath
     else
@@ -181,8 +236,68 @@ function! java#format()
   execute 'edit! '.fileName
 endfunction
 
-function! java#organize_imports()
+function! s:remove_index(s)
+  return substitute(a:s, '\v^\d+', '', '')
+endfunction
+
+function! s:sort_import_list(imports)
   let zones = split('javax?,org,com,\w+', ',')
+  let result = []
+  for packageName in keys(a:imports)
+    if index(a:imports[packageName], '*') == -1
+      " remove unnesessary class a:imports
+      for i in reverse(range(len(a:imports[packageName])))
+        let className = a:imports[packageName][i]
+        if className !=# '*'
+          if search('\v\C<'.className.'>', 'nW') == 0
+            unlet a:imports[packageName][i]
+          endif
+        endif
+      endfor
+      " replace large import list with *
+      if len(a:imports[packageName]) > g:java_max_imports
+        let a:imports[packageName] = ['*']
+      endif
+    else
+      let a:imports[packageName] = ['*']
+    endif
+    " sort import list by zones
+    for className in a:imports[packageName]
+      for i in range(len(zones))
+        if packageName =~# '\v^'.zones[i]
+          call add(result, i.packageName.'.'.className)
+          break
+        endif
+      endfor
+    endfor
+  endfor
+  return map(sort(result), 's:remove_index(v:val)')
+endfunction
+
+function! s:add_import_item(imports, item)
+  if has_key(a:imports, a:item.packageName)
+    call add(a:imports[a:item.packageName], a:item.className)
+  else
+    let a:imports[a:item.packageName] = [a:item.className]
+  endif
+endfunction
+
+function! s:get_import_list(start, finish)
+  let imports = {}
+  let staticImports = {}
+  for i in range(a:start, a:finish)
+    let groups = matchlist(getline(i), '\vimport\s+(static\s+)?([^ \t;]+)')
+    let item = java#split_class_name(groups[2])
+    if empty(groups[1]) 
+      call s:add_import_item(imports, item)
+    else
+      call s:add_import_item(staticImports, item)
+    endif
+  endfor
+  return [imports, staticImports]
+endfunction
+
+function! java#organize_imports()
   normal! mq
   normal! gg
 
@@ -193,72 +308,16 @@ function! java#organize_imports()
 
   let start = search(s:import_pattern, 'n')
   let finish = search(s:import_pattern, 'nb', stopLine)
-
-  let imports = {}
-  let staticImports = {}
-  for i in range(start, finish)
-    let groups = matchlist(getline(i), '\vimport\s+(static\s+)?([^ \t;]+)')
-    let item = java#split_class_name(groups[2])
-    if empty(groups[1]) 
-      if has_key(imports, item.packageName)
-        call add(imports[item.packageName], item.className)
-      else
-        let imports[item.packageName] = [item.className]
-      endif
-    else
-      if has_key(staticImports, item.packageName)
-        call add(staticImports[item.packageName], item.className)
-      else
-        let staticImports[item.packageName] = [item.className]
-      endif
-    endif
-  endfor
-
-  for packageName in keys(imports)
-    let imports[packageName] = uniq(imports[packageName])
-    if len(imports[packageName]) > g:java_max_imports || index(imports[packageName], '*') != -1
-      let imports[packageName] = ['*']
-    endif
-  endfor
-
-  for packageName in keys(staticImports)
-    let staticImports[packageName] = uniq(staticImports[packageName])
-    if len(staticImports[packageName]) > g:java_max_imports || index(staticImports[packageName], '*') != -1
-      let staticImports[packageName] = ['*']
-    endif
-  endfor
-
-  let newImports = []
-  for packageName in sort(keys(imports))
-    for className in imports[packageName]
-      for i in range(len(zones))
-        if packageName =~# '\v^'.zones[i]
-          call add(newImports, i.packageName.'.'.className)
-          break
-        endif
-      endfor
-    endfor
-  endfor
-
-  let newStaticImports = []
-  for packageName in sort(keys(staticImports))
-    for className in staticImports[packageName]
-      for i in range(len(zones))
-        if packageName =~# '\v^'.zones[i]
-          call add(newStaticImports, i.packageName.'.'.className)
-          break
-        endif
-      endfor
-    endfor
-  endfor
+  let imports = s:get_import_list(start, finish)
 
   execute start.','.finish.'delete'
-  for cannonicalClassName in sort(newImports)
-    execute 'normal! iimport '.substitute(cannonicalClassName, '\v^\d', '', '').";\<cr>"
+
+  for className in s:sort_import_list(imports[0])
+    execute 'normal! iimport '.className.";\<cr>"
   endfor
 
-  for cannonicalClassName in sort(newStaticImports)
-    execute 'normal! iimport static '.substitute(cannonicalClassName, '\v^\d', '', '').";\<cr>"
+  for className in s:sort_import_list(imports[1])
+    execute 'normal! iimport static '.className.";\<cr>"
   endfor
 
   silent! normal! `q
@@ -300,6 +359,7 @@ function! java#rename(newClassName, bang)
 endfunction
 
 command! -nargs=1 -complete=customlist,s:get_siblings Java call java#java(<q-args>)
+command! -nargs=1 -complete=customlist,s:get_siblings Groovy call java#groovy(<q-args>)
 command! Jtoggle call java#toggle()
 command! Jexecute call java#execute()
 command! Jrun call java#run()
@@ -318,6 +378,7 @@ augroup java
   autocmd FileType java nmap <buffer> <leader>jf :Jformat<cr>
   autocmd FileType java nmap <buffer> <leader>jo :Jorganize<cr>
   cabbrev java <c-r>=getcmdpos() == 1 && getcmdtype() == ':' ? 'Java' : 'java'<cr>
+  cabbrev groovy <c-r>=getcmdpos() == 1 && getcmdtype() == ':' ? 'Groovy' : 'groovy'<cr>
   cabbrev rename <c-r>=getcmdpos() == 1 && getcmdtype() == ':' ? 'Rename' : 'rename'<cr>
   autocmd FileType java cabbrev <buffer> rename <c-r>=getcmdpos() == 1 && getcmdtype() == ':' ? 'Jrename' : 'rename'<cr>
 augroup END

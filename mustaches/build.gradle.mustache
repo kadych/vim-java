@@ -1,0 +1,47 @@
+{{#license}}
+{{license}}
+
+{{/license}}
+// Created by {{user}} on {{date}} at {{time}}
+import org.gradle.internal.jvm.Jvm
+import org.gradle.util.GradleVersion
+
+apply plugin: 'java'
+apply plugin: 'application'
+
+sourceCompatibility = 1.8
+
+version = '1.0'
+def mainClass = System.getProperty('mainClass')
+{{#className}}
+mainClassName = mainClass != null ? mainClass : '{{#packageName}}{{packageName}}.{{/packageName}}{{className}}'
+{{/className}}
+{{^className}}
+mainClassName = mainClass
+{{/className}}
+
+tasks.withType(JavaCompile) {
+    options.compilerArgs << '-Xlint:all' << '-Xdoclint:syntax' << '-Xdiags:verbose'
+}
+
+test {
+    testLogging.quiet.events = ['failed', 'standard_out']
+}
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+dependencies {
+    testCompile 'junit:junit:4.+'
+}
+
+jar {
+    manifest.attributes 'Main-Class': "$mainClassName"
+    manifest.attributes 'Entry-Point': "$mainClassName"
+    manifest.attributes 'Version': "$version"
+    manifest.attributes 'Created-By': Jvm.current()
+    manifest.attributes 'Gradle-Version': GradleVersion.current()
+}
+

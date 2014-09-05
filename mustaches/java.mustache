@@ -1,0 +1,27 @@
+{{#license}}
+{{license}}
+
+{{/license}}
+// Created by {{user}} on {{date}} at {{time}}
+{{#packageName}}
+package {{packageName}};
+
+{{/packageName}}
+{{#isTest}}
+import org.junit.*;
+import static org.junit.Assert.*;
+
+{{/isTest}}
+public class {{className}} {
+{{^isTest}}
+    public static void main(String[] args) {
+
+    }
+{{/isTest}}
+{{#isTest}}
+    @Test
+    public void test01() {
+
+    }
+{{/isTest}}
+}
