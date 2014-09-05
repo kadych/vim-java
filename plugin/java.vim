@@ -27,25 +27,25 @@ function! java#get_class_name()
     return ''
   endif
   let classname = expand("%:t:r")
-  let linenum = search(s:package_pattern, 'n')
-  if linenum == 0
+  let lnum = search(s:package_pattern, 'n')
+  if lnum == 0
     return classname
   endif
-  let line = getline(linenum)
+  let line = getline(lnum)
   let groups = matchlist(line, s:package_pattern)
   return groups[1].'.'.classname
 endfunction
 
 function! java#get_package_name()
-  let linenum = search(s:package_pattern)
-  if linenum == 0
+  let lnum = search(s:package_pattern)
+  if lnum == 0
     return ''
   endif
-  return substitute(getline(linenum), s:package_pattern, '\1', '')
+  return substitute(getline(lnum), s:package_pattern, '\1', '')
 endfunction
 
-function! java#split_class_name(cannonicalClassName)
-  let names = split(a:cannonicalClassName, '\.')
+function! java#split_class_name(canonicalName)
+  let names = split(a:canonicalName, '\.')
   return {'className': names[-1], 'packageName': join(names[:-2], '.')}
 endfunction
 
@@ -101,13 +101,13 @@ function! s:get_siblings(A, L, P)
     for sourcePath in sourceSet
       let fileName = substitute(item, '\v'.escape(sourcePath.g:file_separator, ' \-.'), '', '')
       if item !=# fileName
-        let cannonicalClassName = substitute(
+        let canonicalName = substitute(
               \substitute(fileName, '\v'.escape(g:file_separator, '\'), '.', 'g'), 
               \'\v\.('.join(s:file_types, '|').')$', '', '')
-        if currentClassName !=# cannonicalClassName
-          let splitted = java#split_class_name(cannonicalClassName)
+        if currentClassName !=# canonicalName
+          let splitted = java#split_class_name(canonicalName)
           call add(classes, packageName ==# splitted.packageName ? 
-                \splitted.className : cannonicalClassName)
+                \splitted.className : canonicalName)
         endif
         break
       endif
@@ -126,8 +126,8 @@ function! java#render_template(scriptFile, outputFile, params)
   execute 'edit! '.a:outputFile
 endfunction
 
-function! java#template_params(cannonicalClassName, fileType)
-  let params = java#split_class_name(a:cannonicalClassName)
+function! java#template_params(canonicalName, fileType)
+  let params = java#split_class_name(a:canonicalName)
   if params.packageName ==# '' && index(s:file_types, &filetype) != -1
     let params.packageName = java#get_package_name()
   endif
@@ -161,8 +161,8 @@ function! s:find_window(fileName)
   return -1
 endfunction
 
-function! s:open_class(fileType, cannonicalClassName)
-  let params = java#template_params(a:cannonicalClassName, a:fileType)
+function! s:open_class(canonicalName, fileType)
+  let params = java#template_params(a:canonicalName, a:fileType)
   if filereadable(params.fileName)
     let winNum = s:find_window(params.fileName)
     if winNum != -1
@@ -178,12 +178,12 @@ function! s:open_class(fileType, cannonicalClassName)
   endif
 endfunction
 
-function! java#java(cannonicalClassName)
-  call s:open_class('java', a:cannonicalClassName)
+function! java#java(canonicalName)
+  call s:open_class(a:canonicalName, 'java')
 endfunction
 
-function! java#groovy(cannonicalClassName)
-  call s:open_class('groovy', a:cannonicalClassName)
+function! java#groovy(canonicalName)
+  call s:open_class(a:canonicalName, 'groovy')
 endfunction
 
 function! java#toggle()
