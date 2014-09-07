@@ -380,7 +380,10 @@ endfunction
 function! s:rename_file(newFileName, bang)
   let fileName = expand('%:p')
   let v:errmsg = ''
-  call mkdir(fnamemodify(a:newFileName, ':h'), 'p')
+  let fileDir = fnamemodify(a:newFileName, ':h')
+  if !isdirectory(fileDir)
+    call mkdir(fileDir, 'p')
+  endif
   silent! execute 'saveas'.a:bang.' '.fnameescape(a:newFileName)
 	if v:errmsg =~# '^$\|^E329'
     if fileName !=# a:newFileName
@@ -402,7 +405,7 @@ function! s:fix_class_name(className)
   if lnum == 0
     return
   endif
-  execute lnum.'s/'.s:class_pattern.'/\1'.escape(a:className, '\.').'/'
+  execute lnum.'s/'.s:class_pattern.'/\1'.a:className.'/'
 endfunction
 
 function! s:fix_package_name(packageName)
