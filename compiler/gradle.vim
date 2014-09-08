@@ -25,9 +25,9 @@ CompilerSet errorformat=
 
 function! gradle#execute()
   if !empty(matchstr(expand('%:h'), '\<main\>'))
-    execute '!gradle -q run -DmainClass='.java#get_class_name()
+    execute '!gradle -q run -DmainClass='.java#get_canonical_name()
   elseif !empty(matchstr(expand('%:h'), '\<test\>'))
-    execute '!gradle -q test --tests '.java#get_class_name()
+    execute '!gradle -q test --tests '.java#get_canonical_name()
   endif
 endfunction
 
