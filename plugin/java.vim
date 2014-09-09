@@ -5,22 +5,30 @@ if exists('g:loaded_java')
 endif
 let g:loaded_java = 1
 
-if has("win32")
-  let g:file_separator = '\'
-else
-  let g:file_separator = '/'
-endif
-
 if !exists('g:mustache_directory')
+  " ~/.vim/bundle/vim-java/mustaches
   let g:mustache_directory = expand(expand('<sfile>:p:h:h').'/mustaches')
 endif
 
-let g:java_max_imports = 3
+if !exists('g:java_max_imports')
+  let g:java_max_imports = 4
+endif
+
+if !exists('g:java_source_set')
+  let g:java_source_set = ['src/main/%f', 'src/test/%f']
+endif
+
+if !exists('g:java_file_types')
+  let g:java_file_types = ['java', 'groovy']
+endif
 
 let s:package_pattern = '\vpackage\s+([^;]+);'
 let s:import_pattern = '\v^import\s+(static\s+)?(\w+)(\..*);'
 let s:class_pattern = '\v^(public\s+(class|interface|enum)\s+)([^ \t{]+)'
-let s:file_types = ['java', 'groovy']
+
+function! s:is_valid(fileType)
+  return index(g:java_file_types, a:fileType) != -1
+endfunction
 
 function! java#get_package_name()
   let lnum = search(s:package_pattern, 'n')
@@ -33,7 +41,7 @@ function! java#get_package_name()
 endfunction
 
 function! java#get_canonical_name()
-  if index(s:file_types, &filetype) == -1
+  if !s:is_valid(&filetype)
     return ''
   endif
   let className = expand("%:t:r")
@@ -45,27 +53,37 @@ function! java#get_canonical_name()
 endfunction
 
 function! java#split_canonical_name(canonicalName)
-  let names = split(a:canonicalName, '\.')
+  if a:canonicalName ==# ''
+    let names = ['']
+  else
+    let names = split(a:canonicalName, '\.')
+  endif
   return {'className': names[-1], 'packageName': join(names[:-2], '.')}
 endfunction
 
-function! s:get_working_dir()
-  if index(s:file_types, &filetype) != -1
-    let pattern = '\v'.escape(
-          \g:file_separator.'?'
-          \.join(['src', '(main|test)', '('.join(s:file_types, '|').')'], g:file_separator)
-          \.'('.g:file_separator.'.*)?', '\')
-    return substitute(expand('%:p:h'), pattern, '', '') 
-  else
-    return getcwd()
-  endif
+function! s:expand_source_path(sourcePath, fileType)
+  return substitute(a:sourcePath, '%f', a:fileType, 'g')
 endfunction
 
-function! s:get_source_set(fileType)
-  let workingDir = s:get_working_dir()
+function! java#get_working_dir()
+  let currentPath = expand('%:p:h')
+  for fileType in g:java_file_types
+    for sourcePath in g:java_source_set
+      let pattern = escape('[\/]'.expand(s:expand_source_path(sourcePath, fileType)).'[\/]', '\\.')
+      let npos = match(currentPath, '\v'.pattern)
+      if npos != -1
+        return currentPath[0:npos - 1]
+      endif
+    endfor
+  endfor
+  return getcwd()
+endfunction
+
+function! java#get_source_set(fileType)
+  let workingDir = java#get_working_dir()
   let sourceSet = []
-  for item in ['src/main/'.a:fileType, 'src/test/'.a:fileType]
-    let path = expand(workingDir.'/'.item)
+  for sourcePath in g:java_source_set
+    let path = expand(workingDir.'/'.s:expand_source_path(sourcePath, a:fileType))
     if isdirectory(path)
       call add(sourceSet, path)
     endif
@@ -81,9 +99,10 @@ function! s:expand_name(sourcePath, canonicalName, fileType)
 endfunction
 
 function! s:remove_test(sourcePath, isTest)
-  if a:isTest && a:sourcePath =~# '\v<test>'
+  let pattern = '\v[\\/]test'
+  if a:isTest && a:sourcePath =~# pattern
     return a:sourcePath
-  elseif !a:isTest && a:sourcePath =~# '\v<main>'
+  elseif !a:isTest && a:sourcePath !~# pattern
     return a:sourcePath
   else
     return ''
@@ -105,34 +124,28 @@ endfunction
 
 function! java#get_source_file(canonicalName, fileType)
   let isTest = s:is_test(a:canonicalName)
-  let sourceSet = s:unlet_empty_items(map(s:get_source_set(a:fileType), 's:remove_test(v:val, isTest)'))
+  let sourceSet = s:unlet_empty_items(map(java#get_source_set(a:fileType), 's:remove_test(v:val, isTest)'))
   let sourceFiles = map(sourceSet, 's:expand_name(v:val, a:canonicalName, a:fileType)')
+  if empty(sourceFiles)
+    return ''
+  endif
   return sourceFiles[0]
 endfunction
 
-function! java#split_file_path(filePath)
-  return [fnamemodify(a:filePath, ':p:h'), fnamemodify(a:filePath, ':t:r'), fnamemodify(a:filePath, ':e')]
-endfunction
-
 function! java#get_canonical_name_ex(filePath)
-  let fileParts = java#split_file_path(a:filePath)
-
-  for sourcePath in s:get_source_set(fileParts[2])
-    let fileName = substitute(a:filePath, '\v'.escape(sourcePath.g:file_separator, ' \-.'), '', '')
-    if a:filePath !=# fileName
-      return substitute(substitute(fileName,
-            \'\v'.escape(g:file_separator, '\'), '.', 'g'), 
-            \'\v\.'.fileParts[2].'$', '', '')
-      break
+  for sourcePath in java#get_source_set(a:filePath)
+    let pattern = escape(expand(sourcePath.'/'), '\\.')
+    let result = substitute(a:filePath, pattern, '', '')
+    if result !=# a:filePath
+      return substitute(fnamemodify(result, ':r'), '[\\/]', '.', 'g')
     endif
   endfor
-
-  return fileParts[1]
+  return fnamemodify(a:filePath, ':t:r')
 endfunction
 
 function! s:get_siblings(A, L, P)
   let fileType = tolower(split(a:L, ' ')[0])
-  let sourceSet = s:get_source_set(fileType)
+  let sourceSet = java#get_source_set(fileType)
 
   let suffix = '.'.fileType
   if a:A =~# '\v\.'
@@ -146,29 +159,31 @@ function! s:get_siblings(A, L, P)
     let prefix = '**/'.a:A.'*'
   endif
   
-  let currentCanonicalName = java#get_canonical_name()
-  let currentSplitted = java#split_canonical_name(currentCanonicalName)
+  let current = java#split_canonical_name(java#get_canonical_name())
   let fileList = globpath(join(sourceSet, ','), prefix.suffix, 0, 1)
 
   let classes = []
+  let canonicalClasses = []
   for item in fileList
     for sourcePath in sourceSet
-      let fileName = substitute(item, '\v'.escape(sourcePath.g:file_separator, ' \-.'), '', '')
+      let pattern = escape(expand(sourcePath.'/'), '\\.')
+      let fileName = substitute(item, pattern, '', '')
       if item !=# fileName
-        let canonicalName = substitute(
-              \substitute(fileName, '\v'.escape(g:file_separator, '\'), '.', 'g'), 
-              \'\v\.('.join(s:file_types, '|').')$', '', '')
-        if currentCanonicalName !=# canonicalName
-          let splitted = java#split_canonical_name(canonicalName)
-          call add(classes, currentSplitted.packageName ==# splitted.packageName ? 
-                \splitted.className : canonicalName)
+        let canonicalName = substitute(fnamemodify(fileName, ':r'), '[\\/]', '.', 'g')
+        let splitted = java#split_canonical_name(canonicalName)
+        if splitted.className !=# current.className
+          if splitted.packageName !=# current.packageName
+            call add(canonicalClasses, canonicalName)
+          elseif splitted.packageName ==# current.packageName
+            call add(classes, splitted.className)
+          endif
         endif
         break
       endif
     endfor
   endfor
 
-  return classes
+  return sort(classes) + sort(canonicalClasses)
 endfunction
 
 function! java#render_template(scriptFile, outputFile, params)
@@ -180,28 +195,25 @@ function! java#render_template(scriptFile, outputFile, params)
   execute 'edit! '.a:outputFile
 endfunction
 
-function! java#template_params(canonicalName, fileType)
-  let params = java#split_canonical_name(a:canonicalName)
-  if params.packageName ==# '' && index(s:file_types, &filetype) != -1
+function! java#template_params(className, fileType)
+  let params = java#split_canonical_name(a:className)
+  if params.packageName ==# '' && s:is_valid(&filetype)
     let params.packageName = java#get_package_name()
   endif
 
   let params.scriptName = a:fileType.'.mustache'
 
   if params.className =~# '^Test' || params.className =~# 'Test$'
-    let sourceType = 'test'
     let params.isTest = 'yes'
+  endif
+
+  if params.packageName ==# ''
+    let canonicalName = params.className
   else
-    let sourceType = 'main'
+    let canonicalName = params.packageName.'.'.params.className
   endif
 
-  let workingDir = s:get_working_dir()
-
-  let targetDir = join(['src', sourceType, a:fileType] + split(params.packageName, '\.'), '/')
-  if workingDir !=# ''
-    let targetDir = workingDir.'/'.targetDir
-  endif
-  let params.fileName = expand(targetDir.'/'.params.className.'.'.a:fileType)
+  let params.fileName = java#get_source_file(canonicalName, a:fileType)
 
   return params
 endfunction
@@ -241,7 +253,7 @@ function! java#groovy(canonicalName)
 endfunction
 
 function! java#toggle()
-  if index(s:file_types, &filetype) == -1
+  if !s:is_valid(&filetype)
     return
   endif
   let canonicalName = java#get_canonical_name()
@@ -249,6 +261,7 @@ function! java#toggle()
   if !s:is_test(canonicalName)
     let newCanonicalName = substitute(canonicalName, '\v([^\.]+)$', 'Test\1', '')
     let newFilePath = java#get_source_file(newCanonicalName, &filetype)
+    echo newFilePath
     if filereadable(newFilePath)
       execute 'edit! '.newFilePath
     else
@@ -429,13 +442,15 @@ function! java#rename(className)
   normal! mq
   normal! gg
 
-  let canonicalName = a:className
-  let splitted = java#split_canonical_name(canonicalName)
-  if splitted.packageName == ''
+  let splitted = java#split_canonical_name(a:className)
+  if splitted.packageName ==# ''
     let splitted.packageName = java#get_package_name()
-    if splitted.packageName != ''
-      let canonicalName = splitted.packageName.'.'.splitted.className
-    endif
+  endif
+
+  if splitted.packageName ==# ''
+    let canonicalName = splitted.className
+  else
+    let canonicalName = splitted.packageName.'.'.splitted.className
   endif
 
   let filePath = java#get_source_file(canonicalName, &filetype)
