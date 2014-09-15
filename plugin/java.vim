@@ -35,8 +35,7 @@ function! java#get_package_name()
   if lnum == 0
     return ''
   endif
-  let line = getline(lnum)
-  let groups = matchlist(line, s:package_pattern)
+  let groups = matchlist(getline(lnum), s:package_pattern)
   return groups[1]
 endfunction
 
@@ -418,7 +417,8 @@ function! s:fix_class_name(className)
   if lnum == 0
     return
   endif
-  execute lnum.'s/'.s:class_pattern.'/\1'.a:className.'/'
+  let groups = matchlist(getline(lnum), s:class_pattern)
+  execute lnum.',$s/\v\C<'.groups[3].'>/'.a:className.'/g'
 endfunction
 
 function! s:fix_package_name(packageName)
