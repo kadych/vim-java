@@ -43,5 +43,6 @@ jar {
     manifest.attributes 'Version': "$version"
     manifest.attributes 'Created-By': Jvm.current()
     manifest.attributes 'Gradle-Version': GradleVersion.current()
+    manifest.attributes 'Class-Path': configurations.runtime.files.collect { it.name }.join(' ')
 }
 
