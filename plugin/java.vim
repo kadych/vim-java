@@ -159,7 +159,7 @@ function! s:get_siblings(A, L, P)
   endif
   
   let current = java#split_canonical_name(java#get_canonical_name())
-  let fileList = globpath(join(sourceSet, ','), prefix.suffix, 0, 1)
+  let fileList = split(globpath(join(sourceSet, ','), prefix.suffix), '\n')
 
   let classes = []
   let canonicalClasses = []
@@ -260,7 +260,6 @@ function! java#toggle()
   if !s:is_test(canonicalName)
     let newCanonicalName = substitute(canonicalName, '\v([^\.]+)$', 'Test\1', '')
     let newFilePath = java#get_source_file(newCanonicalName, &filetype)
-    echo newFilePath
     if filereadable(newFilePath)
       execute 'edit! '.newFilePath
     else
@@ -278,21 +277,39 @@ function! java#toggle()
   endif
 endfunction
 
-function! java#execute()
+function! s:get_command_params(args)
+  let args = a:args
+  let className = ''
+  let arr = split(args, ' ')
+  if len(arr) > 0
+    if arr[0] == '%'
+      let className = java#get_canonical_name()
+    else
+      let className = arr[0]
+    endif
+    let args = join(arr[1:], ' ')
+  endif
+  return {'className': className, 'args': args}
+endfunction
+
+function! java#execute(...)
   if exists('g:java_execute')
-    call function(g:java_execute)()
+    let params = s:get_command_params(a:1)
+    call function(g:java_execute)(params.className, params.args)
   endif
 endfunction
 
-function! java#run()
+function! java#run(...)
   if exists('g:java_run')
-    call function(g:java_run)()
+    let params = s:get_command_params(a:1)
+    call function(g:java_run)(params.className, params.args)
   endif
 endfunction
 
-function! java#test()
+function! java#test(...)
   if exists('g:java_test')
-    call function(g:java_test)()
+    let params = s:get_command_params(a:1)
+    call function(g:java_test)(params.className, params.args)
   endif
 endfunction
 
@@ -463,23 +480,50 @@ function! java#rename(className)
   silent! normal! `q
 endfunction
 
+function! java#maven_script(canonicalName)
+  let splitted = java#split_canonical_name(a:canonicalName)
+  if splitted.packageName ==# ''
+    let splitted.packageName = java#get_package_name()
+  endif
+  let params = {'scriptName': 'pom.xml.mustache', 'fileName': 'pom.xml'}
+  let params['groupId'] = splitted.packageName
+  let params['artifactId'] = tolower(splitted.className)
+  let params['className'] = a:canonicalName
+  call java#render_template(params.scriptName, params.fileName, params)
+endfunction
+
+function! java#gradle_script(canonicalName)
+  let splitted = java#split_canonical_name(a:canonicalName)
+  if splitted.packageName ==# ''
+    let splitted.packageName = java#get_package_name()
+  endif
+  let params = {'scriptName': 'build.gradle.mustache', 'fileName': 'build.gradle'}
+  let params['groupId'] = splitted.packageName
+  let params['artifactId'] = tolower(splitted.className)
+  let params['className'] = a:canonicalName
+  call java#render_template(params.scriptName, params.fileName, params)
+endfunction
+
 command! -nargs=1 -complete=customlist,s:get_siblings Java call java#java(<q-args>)
 command! -nargs=1 -complete=customlist,s:get_siblings Groovy call java#groovy(<q-args>)
 command! Jtoggle call java#toggle()
-command! Jexecute call java#execute()
-command! Jrun call java#run()
+command! -nargs=* Jexecute call java#execute(<q-args>)
+command! -nargs=* Jrun call java#run(<q-args>)
 command! Jtest call java#test()
+command! -nargs=* Jtest call java#test(<q-args>)
 command! Jformat call java#format()
 command! Jorganize call java#organize_imports()
 command! -nargs=1 Jrename call java#rename(<q-args>)
 command! -nargs=* -bang Rename call s:rename_file(<args>, <bang>)
+command! -nargs=1 Maven call java#maven_script(<q-args>)
+command! -nargs=1 Gradle call java#gradle_script(<q-args>)
 
 augroup java
   autocmd FileType java nmap <buffer> <f7> :make<cr>
   autocmd FileType java nmap <buffer> <s-f8> :Jrun<cr>
   autocmd FileType java nmap <buffer> <m-f8> :Jtest<cr>
   autocmd FileType java nmap <buffer> <leader>jt :Jtoggle<cr>
-  autocmd FileType java nmap <buffer> <leader>jr :Jexecute<cr>
+  autocmd FileType java nmap <buffer> <leader>jr :Jexecute %<cr>
   autocmd FileType java nmap <buffer> <leader>jf :Jformat<cr>
   autocmd FileType java nmap <buffer> <leader>jo :Jorganize<cr>
   cabbrev java <c-r>=getcmdpos() == 1 && getcmdtype() == ':' ? 'Java' : 'java'<cr>

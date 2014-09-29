@@ -9,7 +9,7 @@ if exists(":CompilerSet") != 2
   command -nargs=* CompilerSet setlocal <args>
 endif
 
-CompilerSet makeprg=gradle\ build
+CompilerSet makeprg=gradle\ -q
 CompilerSet errorformat=
       \%W:compileJava%f:%l:\ warning:\ %m,
       \%W:compileTestJava%f:%l:\ warning:\ %m,
@@ -23,20 +23,23 @@ CompilerSet errorformat=
       \%Z%p^,
       \%-G%.%#,
 
-function! gradle#execute()
+function! gradle#execute(className, args)
   if !empty(matchstr(expand('%:h'), '\<main\>'))
-    execute '!gradle -q run -DmainClass='.java#get_canonical_name()
+    call gradle#run(a:className, a:args)
   elseif !empty(matchstr(expand('%:h'), '\<test\>'))
-    execute '!gradle -q test --tests '.java#get_canonical_name()
+    call gradle#test(a:className, a:args)
   endif
 endfunction
 
-function! gradle#run()
-  execute '!gradle -q run'
+function! gradle#run(className, args)
+  let mainClass = a:className != '' ? ' -DmainClass='.a:className : ''
+  let args = a:args != '' ? ' -Pargs="'.escape(a:args, '"').'"' : ''
+  execute 'make run'.mainClass.args
 endfunction
 
-function! gradle#test()
-  execute '!gradle -q test'
+function! gradle#test(className, args)
+  let mainClass = a:className != '' ? ' --tests '.a:className : ''
+  execute 'make test'.mainClass
 endfunction
 
 let g:java_execute = 'gradle#execute'
