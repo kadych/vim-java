@@ -509,7 +509,6 @@ command! -nargs=1 -complete=customlist,s:get_siblings Groovy call java#groovy(<q
 command! Jtoggle call java#toggle()
 command! -nargs=* Jexecute call java#execute(<q-args>)
 command! -nargs=* Jrun call java#run(<q-args>)
-command! Jtest call java#test()
 command! -nargs=* Jtest call java#test(<q-args>)
 command! Jformat call java#format()
 command! Jorganize call java#organize_imports()
