@@ -529,4 +529,6 @@ augroup java
   cabbrev groovy <c-r>=getcmdpos() == 1 && getcmdtype() == ':' ? 'Groovy' : 'groovy'<cr>
   cabbrev rename <c-r>=getcmdpos() == 1 && getcmdtype() == ':' ? 'Rename' : 'rename'<cr>
   autocmd FileType java cabbrev <buffer> rename <c-r>=getcmdpos() == 1 && getcmdtype() == ':' ? 'Jrename' : 'rename'<cr>
+  autocmd FileType java cabbrev <buffer> run <c-r>=getcmdpos() == 1 && getcmdtype() == ':' ? 'Jrun' : 'run'<cr>
+  autocmd FileType java cabbrev <buffer> test <c-r>=getcmdpos() == 1 && getcmdtype() == ':' ? 'Jtest' : 'test'<cr>
 augroup END
